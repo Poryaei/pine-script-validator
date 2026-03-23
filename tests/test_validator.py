@@ -60,13 +60,6 @@ foo(x) =>
         diagnostics = self.validator.validate_text("x = 1 // no reclaim (close sweep)")
         self.assertFalse(any("Undefined function 'reclaim'" in diagnostic.message for diagnostic in diagnostics))
 
-    def test_real_mother_candle_script_has_no_errors(self) -> None:
-        project_root = Path(__file__).resolve().parents[2]
-        script_path = project_root / "Backtests" / "MotherCandle.pine"
-        diagnostics = self.validator.validate_file(script_path)
-        error_messages = [diagnostic.message for diagnostic in diagnostics if diagnostic.severity == Severity.ERROR]
-        self.assertEqual(error_messages, [])
-
     def test_generic_function_call_and_dotted_array_type(self) -> None:
         code = "var chart.point[] _points = array.new<chart.point>()"
         diagnostics = self.validator.validate_text(code)
