@@ -34,6 +34,11 @@ Issues = "https://github.com/Poryaei/pine-script-validator/issues"
 pine-validator = "pinescript_validator.cli:main"
 pine-validator-audit = "pinescript_validator.audit:main"
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
