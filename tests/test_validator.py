@@ -5,6 +5,7 @@ from argparse import Namespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from pinescript_validator.agent_report import build_agent_report
 from pinescript_validator.cli import _expand_paths, _filter_results, _selected_severities
 from pinescript_validator.diagnostics import Severity
 from pinescript_validator.sarif import build_sarif_run
@@ -502,6 +503,15 @@ value = timeframe
 
         self.assertTrue(filtered[0]["diagnostics"])
         self.assertTrue(all(item.severity == Severity.ERROR for item in filtered[0]["diagnostics"]))
+
+    def test_agent_report_can_be_built_from_filtered_diagnostics(self) -> None:
+        diagnostics = self.validator.validate_text('indicator("X")\nvalue = close\nplot(close, invalid_param=true)')
+        filtered = [item for item in diagnostics if item.severity == Severity.ERROR]
+        report = build_agent_report(filtered, 'indicator("X")\nvalue = close\nplot(close, invalid_param=true)')
+
+        self.assertEqual(report["summary"]["error"], 1)
+        self.assertEqual(report["summary"]["hint"], 0)
+        self.assertEqual(len(report["diagnostics"]), 1)
 
 
 if __name__ == "__main__":

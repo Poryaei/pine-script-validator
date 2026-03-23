@@ -121,3 +121,13 @@ def build_agent_report(
         "diagnostics": items,
         "next_steps": next_steps,
     }
+
+
+def clone_agent_report_with_diagnostics(
+    report: dict[str, object],
+    diagnostics: list[Diagnostic],
+    text: str,
+    *,
+    file_path: str | Path | None = None,
+) -> dict[str, object]:
+    return build_agent_report(diagnostics, text, file_path=file_path)

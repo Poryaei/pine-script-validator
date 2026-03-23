@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .diagnostics import Diagnostic, Severity
+from .agent_report import build_agent_report
 from .sarif import build_sarif_run
 from .validator import PineScriptValidator
 
@@ -127,6 +128,26 @@ def _summary(results: list[dict[str, object]]) -> dict[str, int]:
     }
 
 
+def _write_output(value: str) -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+    try:
+        sys.stdout.write(value)
+        if not value.endswith("\n"):
+            sys.stdout.write("\n")
+    except UnicodeEncodeError:
+        safe_value = value.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(
+            sys.stdout.encoding or "utf-8",
+            errors="replace",
+        )
+        sys.stdout.write(safe_value)
+        if not safe_value.endswith("\n"):
+            sys.stdout.write("\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     validator = PineScriptValidator()
@@ -154,13 +175,13 @@ def main(argv: list[str] | None = None) -> int:
     diagnostics = results[0]["diagnostics"] if len(results) == 1 else []
 
     if args.sarif:
-        print(json.dumps(build_sarif_run(results), ensure_ascii=False, indent=2))
+        _write_output(json.dumps(build_sarif_run(results), ensure_ascii=False, indent=2))
     elif args.agent_json and len(results) > 1:
         file_reports = [
-            validator.build_agent_report_for_text(item["text"], file_path=item["path"])
+            build_agent_report(item["diagnostics"], item["text"], file_path=item["path"])
             for item in results
         ]
-        print(
+        _write_output(
             json.dumps(
                 {
                     "tool": "pine-script-validator",
@@ -174,9 +195,9 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     elif args.agent_json:
-        print(json.dumps(validator.build_agent_report_for_text(text, file_path=file_path), ensure_ascii=False, indent=2))
+        _write_output(json.dumps(build_agent_report(diagnostics, text, file_path=file_path), ensure_ascii=False, indent=2))
     elif args.json and len(results) > 1:
-        print(
+        _write_output(
             json.dumps(
                 {
                     "tool": "pine-script-validator",
@@ -195,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     elif args.json:
-        print(json.dumps([diagnostic.to_dict() for diagnostic in diagnostics], ensure_ascii=False, indent=2))
+        _write_output(json.dumps([diagnostic.to_dict() for diagnostic in diagnostics], ensure_ascii=False, indent=2))
     else:
         any_output = False
         for item in results:
@@ -204,9 +225,9 @@ def main(argv: list[str] | None = None) -> int:
             if file_diagnostics:
                 any_output = True
                 for diagnostic in file_diagnostics:
-                    print(diagnostic.format(path))
+                    _write_output(diagnostic.format(path))
         if not any_output:
-            print("No diagnostics.")
+            _write_output("No diagnostics.")
 
     return 1 if any(diagnostic.severity == Severity.ERROR for item in results for diagnostic in item["diagnostics"]) else 0
 
