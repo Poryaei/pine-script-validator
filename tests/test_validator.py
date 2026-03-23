@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from pinescript_validator.cli import _expand_paths, _filter_results, _selected_severities
 from pinescript_validator.diagnostics import Severity
 from pinescript_validator.sarif import build_sarif_run
 from pinescript_validator.validator import PineScriptValidator
-from pinescript_validator.cli import _expand_paths
 
 
 class ValidatorTests(unittest.TestCase):
@@ -478,6 +479,29 @@ value = timeframe
         self.assertEqual(sarif["version"], "2.1.0")
         self.assertEqual(len(sarif["runs"]), 1)
         self.assertGreaterEqual(len(sarif["runs"][0]["results"]), 1)
+
+    def test_diagnostics_are_sorted_by_severity_before_location(self) -> None:
+        diagnostics = self.validator.validate_text('indicator("X")\nvalue = close\nplot(close, invalid_param=true)')
+
+        severities = [diagnostic.severity for diagnostic in diagnostics]
+        self.assertEqual(severities, sorted(severities))
+
+    def test_selected_severities_respects_cli_toggles(self) -> None:
+        selected = _selected_severities(
+            Namespace(errors=True, warnings=False, information=False, hints=True)
+        )
+
+        self.assertEqual(selected, {Severity.ERROR, Severity.HINT})
+
+    def test_filter_results_removes_disabled_severities(self) -> None:
+        diagnostics = self.validator.validate_text('indicator("X")\nvalue = close\nplot(close, invalid_param=true)')
+        filtered = _filter_results(
+            [{"path": Path("sample.pine"), "text": "", "diagnostics": diagnostics}],
+            {Severity.ERROR},
+        )
+
+        self.assertTrue(filtered[0]["diagnostics"])
+        self.assertTrue(all(item.severity == Severity.ERROR for item in filtered[0]["diagnostics"]))
 
 
 if __name__ == "__main__":

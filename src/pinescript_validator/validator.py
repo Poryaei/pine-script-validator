@@ -78,5 +78,5 @@ class PineScriptValidator:
                 continue
             seen.add(key)
             output.append(diagnostic)
-        output.sort(key=lambda item: (item.line, item.column, item.severity, item.message))
+        output.sort(key=lambda item: (item.severity, item.line, item.column, item.message))
         return output

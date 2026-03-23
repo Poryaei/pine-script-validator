@@ -29,6 +29,7 @@ This project focuses on exactly that.
 - Validate multiple files or directories in one command
 - Emit SARIF output for CI pipelines, review bots, and code scanning tools
 - Audit large script corpora and generate JSON and Markdown reports
+- Control which severities are emitted with professional CLI toggles
 
 ## Best Fit Use Cases
 
@@ -76,6 +77,18 @@ Emit SARIF for CI or review tooling:
 
 ```powershell
 pine-validator path\to\pine-scripts --sarif
+```
+
+Show only errors and warnings:
+
+```powershell
+pine-validator path\to\script.pine --no-hints --no-information
+```
+
+Show only hints during cleanup:
+
+```powershell
+pine-validator path\to\script.pine --no-errors --no-warnings --hints
 ```
 
 Validate from stdin:
@@ -154,6 +167,12 @@ Output shape:
 - `--agent-json` for richer debugging output intended for agents and automation
 - directory and multi-file batch validation
 - `--sarif` for CI, code scanning, and external review integrations
+- `--errors/--no-errors`
+- `--warnings/--no-warnings`
+- `--information/--no-information`
+- `--hints/--no-hints`
+
+Diagnostics are ordered by severity first, then by source location. By default the CLI prints errors first, then warnings, then information messages, and finally hints.
 
 Exit codes:
 

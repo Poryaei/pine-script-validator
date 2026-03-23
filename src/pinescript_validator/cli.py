@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from .diagnostics import Severity
+from .diagnostics import Diagnostic, Severity
 from .sarif import build_sarif_run
 from .validator import PineScriptValidator
 
@@ -24,6 +24,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--sarif",
         action="store_true",
         help="Print SARIF output for CI, code scanning, and machine-readable review tooling.",
+    )
+    parser.add_argument(
+        "--errors",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include or exclude error diagnostics.",
+    )
+    parser.add_argument(
+        "--warnings",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include or exclude warning diagnostics.",
+    )
+    parser.add_argument(
+        "--information",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include or exclude information diagnostics.",
+    )
+    parser.add_argument(
+        "--hints",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include or exclude hint diagnostics.",
     )
     return parser
 
@@ -64,6 +88,33 @@ def _validate_file_targets(validator: PineScriptValidator, paths: list[Path]) ->
     return results
 
 
+def _selected_severities(args: argparse.Namespace) -> set[Severity]:
+    selected: set[Severity] = set()
+    if args.errors:
+        selected.add(Severity.ERROR)
+    if args.warnings:
+        selected.add(Severity.WARNING)
+    if args.information:
+        selected.add(Severity.INFORMATION)
+    if args.hints:
+        selected.add(Severity.HINT)
+    return selected
+
+
+def _filter_results(results: list[dict[str, object]], selected: set[Severity]) -> list[dict[str, object]]:
+    filtered: list[dict[str, object]] = []
+    for item in results:
+        diagnostics = [diagnostic for diagnostic in item["diagnostics"] if diagnostic.severity in selected]
+        filtered.append(
+            {
+                "path": item["path"],
+                "text": item["text"],
+                "diagnostics": diagnostics,
+            }
+        )
+    return filtered
+
+
 def _summary(results: list[dict[str, object]]) -> dict[str, int]:
     diagnostics = [diagnostic for item in results for diagnostic in item["diagnostics"]]
     return {
@@ -81,6 +132,9 @@ def main(argv: list[str] | None = None) -> int:
     validator = PineScriptValidator()
     if sum(1 for flag in (args.json, args.agent_json, args.sarif) if flag) > 1:
         raise SystemExit("Choose only one of --json, --agent-json, or --sarif.")
+    selected_severities = _selected_severities(args)
+    if not selected_severities:
+        raise SystemExit("At least one diagnostic severity must remain enabled.")
 
     if "-" in args.paths:
         if len(args.paths) != 1:
@@ -94,9 +148,10 @@ def main(argv: list[str] | None = None) -> int:
         if not file_paths:
             raise SystemExit("No .pine files matched the provided targets.")
         results = _validate_file_targets(validator, file_paths)
-        file_path = results[0]["path"] if len(results) == 1 else None
-        text = results[0]["text"] if len(results) == 1 else ""
-        diagnostics = results[0]["diagnostics"] if len(results) == 1 else []
+    results = _filter_results(results, selected_severities)
+    file_path = results[0]["path"] if len(results) == 1 else None
+    text = results[0]["text"] if len(results) == 1 else ""
+    diagnostics = results[0]["diagnostics"] if len(results) == 1 else []
 
     if args.sarif:
         print(json.dumps(build_sarif_run(results), ensure_ascii=False, indent=2))
