@@ -1,37 +1,42 @@
 # Pine Script Validator
 
-A Python toolkit for parsing, validating, and auditing TradingView Pine Script files.
+Agent-friendly validation and debugging toolkit for TradingView Pine Script.
 
-`Pine Script Validator` is designed for local analysis of `.pine` scripts. It provides syntax diagnostics, semantic validation, and repository-scale audit reporting to help catch common issues early and understand where unsupported or ambiguous Pine patterns still exist.
+`Pine Script Validator` helps humans and coding agents inspect `.pine` files locally, catch syntax and semantic problems, and turn raw diagnostics into actionable debugging output. The project is built for workflows where an agent needs to read a Pine script, understand what failed, and decide what to fix next.
 
-## Why This Project Exists
+## What It Solves
 
-Pine Script tooling outside TradingView is limited. This project aims to make Pine scripts easier to inspect programmatically by providing:
+Debugging Pine Script outside TradingView is awkward, especially for automated workflows. Agents typically need:
 
-- A Python parser for Pine Script
-- Human-readable diagnostics with source locations
-- Validation against bundled Pine Script v6 metadata
-- Auditing tools for large collections of scripts
+- a local parser they can run repeatedly
+- machine-readable diagnostics
+- enough source context to propose a fix
+- stable output they can feed into a retry loop
 
-It is especially useful for offline validation, static analysis experiments, migration work, corpus cleanup, and building higher-level Pine tooling on top of a Python codebase.
+This project focuses on exactly that.
 
-## Features
+## Core Capabilities
 
-- Pure Python lexer and parser for Pine Script
-- Line and column diagnostics for parse and validation errors
-- Validation of built-in functions and namespaces using bundled Pine v6 metadata
-- Semantic checks for:
-  - duplicate definitions
-  - undefined names
-  - invalid named arguments
-  - unused variables
-  - stateful calls inside conditional scopes
-- CLI for validating individual `.pine` files
-- Audit command for scanning script corpora and generating JSON and Markdown reports
+- Parse Pine Script with a pure Python lexer and parser
+- Validate built-in functions and namespaces using bundled Pine v6 metadata
+- Report syntax, semantic, warning, and hint diagnostics with source positions
+- Emit standard JSON diagnostics for tooling integration
+- Emit agent-oriented JSON reports with:
+  - per-diagnostic line excerpts
+  - visual pointers to the failing span
+  - suggested remediation guidance
+  - summary counts and next-step hints
+- Audit large script corpora and generate JSON and Markdown reports
+
+## Best Fit Use Cases
+
+- letting agents debug Pine scripts inside local coding workflows
+- validating generated Pine code before shipping it elsewhere
+- regression testing parser support against real-world scripts
+- scanning Pine corpora to find unsupported syntax patterns
+- building higher-level Pine tooling on top of Python
 
 ## Installation
-
-Create a virtual environment and install the project in editable mode:
 
 ```powershell
 python -m venv .venv
@@ -41,25 +46,42 @@ pip install -e .
 
 ## Quick Start
 
-Validate a single file:
+Validate a file in human-readable mode:
 
 ```powershell
 pine-validator path\to\script.pine
 ```
 
-Read from standard input:
-
-```powershell
-Get-Content path\to\script.pine | python -m pinescript_validator.cli -
-```
-
-Emit diagnostics as JSON:
+Emit plain JSON diagnostics:
 
 ```powershell
 pine-validator path\to\script.pine --json
 ```
 
-## Example
+Emit agent-oriented debugging output:
+
+```powershell
+pine-validator path\to\script.pine --agent-json
+```
+
+Validate from stdin:
+
+```powershell
+Get-Content path\to\script.pine | python -m pinescript_validator.cli - --agent-json
+```
+
+## Agent Debugging Workflow
+
+Recommended loop for an agent:
+
+1. Run `pine-validator script.pine --agent-json`
+2. Read `summary.error` first and fix hard failures before hints
+3. Use each diagnostic's `excerpt`, `pointer`, and `suggestion` fields to prepare the next code edit
+4. Re-run validation after every edit until `ok` becomes `true`
+
+The `--agent-json` mode is designed to reduce guesswork in automated debugging loops.
+
+## Example Agent Output
 
 Input:
 
@@ -69,16 +91,60 @@ value = close
 plot(close, invalid_param=true)
 ```
 
-Possible output:
+Command:
 
-```text
-path\to\script.pine:3:13: error: Invalid parameter 'invalid_param' for 'plot'
-path\to\script.pine:2:1: hint: Variable 'value' is declared but never used.
+```powershell
+pine-validator example.pine --agent-json
 ```
+
+Output shape:
+
+```json
+{
+  "tool": "pine-script-validator",
+  "mode": "agent",
+  "path": "example.pine",
+  "ok": false,
+  "summary": {
+    "total": 2,
+    "error": 1,
+    "warning": 0,
+    "information": 0,
+    "hint": 1
+  },
+  "diagnostics": [
+    {
+      "line": 3,
+      "column": 13,
+      "severity": "error",
+      "message": "Invalid parameter 'invalid_param' for 'plot'",
+      "excerpt": "plot(close, invalid_param=true)",
+      "pointer": "            ^",
+      "suggestion": "Check the target function signature and remove, rename, or relocate unsupported named arguments."
+    }
+  ],
+  "next_steps": [
+    "Fix all error diagnostics first, then re-run validation to expose any follow-up semantic issues."
+  ]
+}
+```
+
+## CLI Modes
+
+`pine-validator` currently supports:
+
+- default text output for humans
+- `--json` for plain machine-readable diagnostics
+- `--agent-json` for richer debugging output intended for agents and automation
+
+Exit codes:
+
+- `0` when no error-level diagnostics are present
+- `1` when at least one error-level diagnostic is reported
 
 ## Audit Mode
 
-The audit command scans one or more script roots, compares observed usage against local docs and bundled metadata, and writes summary reports.
+The audit command scans one or more script roots, compares observed Pine usage against bundled metadata and local documentation, and writes report files for broader maintenance work.
 
 Run with default paths:
 
@@ -86,7 +152,7 @@ Run with default paths:
 python -m pinescript_validator.audit
 ```
 
-Run with explicit script and docs roots:
+Run with explicit roots:
 
 ```powershell
 python -m pinescript_validator.audit --scripts-root ..\ExternalScripts --docs-root ..\PineTool\pinescript_docs
@@ -97,24 +163,11 @@ Generated outputs:
 - `smart_audit_report.json`
 - `smart_audit_report.md`
 
-Audit reports are useful for:
-
-- spotting recurring parser gaps
-- identifying noisy diagnostics
-- comparing local docs coverage against metadata
-- finding common built-in usage patterns
-- surfacing permissive instance-method hotspots
-
-## CLI Behavior
-
-Exit codes:
-
-- `0` when validation completes without error-level diagnostics
-- `1` when at least one error-level diagnostic is reported
+Audit mode is useful when you want to improve the validator itself, not just debug one script.
 
 ## Development
 
-Run the test suite:
+Run the tests:
 
 ```powershell
 python -m pytest -q
@@ -123,35 +176,35 @@ python -m pytest -q
 Project layout:
 
 ```text
-src/pinescript_validator/   Core parser, validator, CLI, and audit modules
+src/pinescript_validator/   Parser, validator, CLI, audit, and agent-report modules
 tests/                      Regression and feature tests
 pyproject.toml              Packaging and pytest configuration
 ```
 
 ## Current Scope
 
-This project already covers a large set of Pine Script syntax and validation scenarios, but it is still an evolving local validator rather than a full TradingView-compatible runtime.
+This project is a validator and static analysis tool, not a Pine runtime.
 
-Current focus areas include:
+It currently focuses on:
 
-- parsing modern Pine syntax patterns
-- validating names and arguments using bundled metadata
-- improving diagnostics quality
-- reducing false positives on real-world scripts
+- practical parser coverage for real Pine scripts
+- useful diagnostics for local debugging
+- machine-readable output for agents and tooling
+- ongoing reduction of false positives and noisy hints
 
 ## Limitations
 
-- It does not execute Pine Script
-- It is not a replacement for TradingView's runtime behavior
-- Some edge cases and undocumented language patterns may still require additional parser or validator work
-- Validation quality depends partly on the bundled metadata and the currently implemented semantic rules
+- It does not execute Pine Script or simulate TradingView runtime behavior
+- Some undocumented or rare Pine patterns may still need parser support
+- Suggested remediation text in `--agent-json` is heuristic guidance, not a guaranteed autofix
+- Validation quality depends on the bundled metadata and implemented semantic rules
 
 ## Roadmap
 
-- Improve support for additional real-world Pine edge cases
-- Expand semantic analysis coverage
-- Improve documentation and examples
-- Continue reducing noisy or overly permissive diagnostics
+- Improve structured diagnostics for more Pine-specific failure modes
+- Expand semantic coverage for advanced script patterns
+- Add more regression cases from real-world Pine scripts
+- Keep improving agent-oriented debugging ergonomics
 
 ## License
 

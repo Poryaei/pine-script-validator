@@ -436,6 +436,24 @@ value = timeframe
         diagnostics = self.validator.validate_text(code)
         self.assertFalse(any("Variable 'timeframe' is declared but never used." in d.message for d in diagnostics))
 
+    def test_agent_report_contains_excerpt_pointer_and_suggestion(self) -> None:
+        code = 'plot(close, invalid_param=true)'
+        report = self.validator.build_agent_report_for_text(code)
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["summary"]["error"], 1)
+        self.assertEqual(report["diagnostics"][0]["excerpt"], code)
+        self.assertIn("^", report["diagnostics"][0]["pointer"])
+        self.assertIn("signature", report["diagnostics"][0]["suggestion"])
+
+    def test_agent_report_for_clean_script_marks_ok(self) -> None:
+        code = 'indicator("X")\nplot(close)'
+        report = self.validator.build_agent_report_for_text(code)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["summary"]["total"], 0)
+        self.assertTrue(any("No diagnostics" in step for step in report["next_steps"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .agent_report import build_agent_report
 from .ast_validator import AstValidator
 from .diagnostics import Diagnostic, Severity
 from .parser import Parser
@@ -50,6 +51,16 @@ class PineScriptValidator:
     def validate_file(self, path: str | Path) -> list[Diagnostic]:
         file_path = Path(path)
         return self.validate_text(file_path.read_text(encoding="utf-8"))
+
+    def build_agent_report_for_text(self, text: str, *, file_path: str | Path | None = None) -> dict[str, object]:
+        diagnostics = self.validate_text(text)
+        return build_agent_report(diagnostics, text, file_path=file_path)
+
+    def build_agent_report_for_file(self, path: str | Path) -> dict[str, object]:
+        file_path = Path(path)
+        text = file_path.read_text(encoding="utf-8")
+        diagnostics = self.validate_text(text)
+        return build_agent_report(diagnostics, text, file_path=file_path)
 
     @staticmethod
     def _dedupe_and_sort(diagnostics: list[Diagnostic]) -> list[Diagnostic]:

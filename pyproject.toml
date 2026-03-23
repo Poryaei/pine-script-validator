@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pinescript-validator"
 version = "0.1.0"
-description = "My awesome package"
+description = "Agent-friendly Pine Script validator and audit toolkit for TradingView scripts."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
@@ -13,7 +13,7 @@ authors = [
     { name = "Abolfazl Poryaei", email = "poryaeiabolfazl@gmail.com" }
 ]
 license = "MIT"
-keywords = ["pine-script", "tradingview", "validator", "parser", "lint"]
+keywords = ["pine-script", "tradingview", "validator", "parser", "lint", "agents", "debugging"]
 
 [project.urls]
 Homepage = "https://github.com/Poryaei/pine-script-validator"

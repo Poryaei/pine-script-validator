@@ -13,6 +13,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Validate Pine Script files with the Python port of the local VS Code extension.")
     parser.add_argument("path", help="Path to a .pine file, or - to read from stdin")
     parser.add_argument("--json", action="store_true", help="Print diagnostics as JSON")
+    parser.add_argument(
+        "--agent-json",
+        action="store_true",
+        help="Print a structured report with summaries, snippets, and suggested next steps for agents and automation.",
+    )
     return parser
 
 
@@ -21,13 +26,17 @@ def main(argv: list[str] | None = None) -> int:
     validator = PineScriptValidator()
 
     if args.path == "-":
-        diagnostics = validator.validate_text(sys.stdin.read())
+        text = sys.stdin.read()
+        diagnostics = validator.validate_text(text)
         file_path = None
     else:
         file_path = Path(args.path)
-        diagnostics = validator.validate_file(file_path)
+        text = file_path.read_text(encoding="utf-8")
+        diagnostics = validator.validate_text(text)
 
-    if args.json:
+    if args.agent_json:
+        print(json.dumps(validator.build_agent_report_for_text(text, file_path=file_path), ensure_ascii=False, indent=2))
+    elif args.json:
         print(json.dumps([diagnostic.to_dict() for diagnostic in diagnostics], ensure_ascii=False, indent=2))
     else:
         if diagnostics:
