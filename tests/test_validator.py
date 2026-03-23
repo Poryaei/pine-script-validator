@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from pinescript_validator.diagnostics import Severity
+from pinescript_validator.sarif import build_sarif_run
 from pinescript_validator.validator import PineScriptValidator
+from pinescript_validator.cli import _expand_paths
 
 
 class ValidatorTests(unittest.TestCase):
@@ -453,6 +456,28 @@ value = timeframe
         self.assertTrue(report["ok"])
         self.assertEqual(report["summary"]["total"], 0)
         self.assertTrue(any("No diagnostics" in step for step in report["next_steps"]))
+
+    def test_expand_paths_collects_pine_files_from_directory(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            nested = root / "nested"
+            nested.mkdir()
+            (root / "one.pine").write_text('indicator("A")', encoding="utf-8")
+            (nested / "two.pine").write_text('indicator("B")', encoding="utf-8")
+            (nested / "note.txt").write_text("ignore", encoding="utf-8")
+
+            paths = _expand_paths([str(root)])
+
+            self.assertEqual(len(paths), 2)
+            self.assertTrue(all(path.suffix == ".pine" for path in paths))
+
+    def test_build_sarif_run_emits_results(self) -> None:
+        diagnostics = self.validator.validate_text("plot(close, invalid_param=true)")
+        sarif = build_sarif_run([{"path": Path("sample.pine"), "diagnostics": diagnostics}])
+
+        self.assertEqual(sarif["version"], "2.1.0")
+        self.assertEqual(len(sarif["runs"]), 1)
+        self.assertGreaterEqual(len(sarif["runs"][0]["results"]), 1)
 
 
 if __name__ == "__main__":

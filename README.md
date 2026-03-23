@@ -26,6 +26,8 @@ This project focuses on exactly that.
   - visual pointers to the failing span
   - suggested remediation guidance
   - summary counts and next-step hints
+- Validate multiple files or directories in one command
+- Emit SARIF output for CI pipelines, review bots, and code scanning tools
 - Audit large script corpora and generate JSON and Markdown reports
 
 ## Best Fit Use Cases
@@ -64,6 +66,18 @@ Emit agent-oriented debugging output:
 pine-validator path\to\script.pine --agent-json
 ```
 
+Validate an entire directory of Pine files:
+
+```powershell
+pine-validator path\to\pine-scripts --agent-json
+```
+
+Emit SARIF for CI or review tooling:
+
+```powershell
+pine-validator path\to\pine-scripts --sarif
+```
+
 Validate from stdin:
 
 ```powershell
@@ -80,6 +94,8 @@ Recommended loop for an agent:
 4. Re-run validation after every edit until `ok` becomes `true`
 
 The `--agent-json` mode is designed to reduce guesswork in automated debugging loops.
+
+For larger agent workflows, you can point the CLI at a directory and let the agent process the batch report file by file.
 
 ## Example Agent Output
 
@@ -136,6 +152,8 @@ Output shape:
 - default text output for humans
 - `--json` for plain machine-readable diagnostics
 - `--agent-json` for richer debugging output intended for agents and automation
+- directory and multi-file batch validation
+- `--sarif` for CI, code scanning, and external review integrations
 
 Exit codes:
 

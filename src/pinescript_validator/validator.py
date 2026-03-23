@@ -50,7 +50,7 @@ class PineScriptValidator:
 
     def validate_file(self, path: str | Path) -> list[Diagnostic]:
         file_path = Path(path)
-        return self.validate_text(file_path.read_text(encoding="utf-8"))
+        return self.validate_text(file_path.read_text(encoding="utf-8-sig"))
 
     def build_agent_report_for_text(self, text: str, *, file_path: str | Path | None = None) -> dict[str, object]:
         diagnostics = self.validate_text(text)
@@ -58,7 +58,7 @@ class PineScriptValidator:
 
     def build_agent_report_for_file(self, path: str | Path) -> dict[str, object]:
         file_path = Path(path)
-        text = file_path.read_text(encoding="utf-8")
+        text = file_path.read_text(encoding="utf-8-sig")
         diagnostics = self.validate_text(text)
         return build_agent_report(diagnostics, text, file_path=file_path)
 
