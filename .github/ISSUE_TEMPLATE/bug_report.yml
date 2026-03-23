@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a validator bug, false positive, missing Pine Script v6 behavior, or confusing diagnostic.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the problem.
+      placeholder: The validator reports a false warning for...
+    validations:
+      required: true
+
+  - type: textarea
+    id: pine_snippet
+    attributes:
+      label: Pine snippet
+      description: Paste the smallest Pine Script example that reproduces the issue.
+      render: pine
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command used
+      description: Paste the exact command you ran.
+      placeholder: python -m pinescript_validator.cli example.pine --agent-json
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual output
+      description: Paste the validator output you received.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe what you expected instead.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version, OS, and any other useful environment details.
+      placeholder: Python 3.13 on Windows 11

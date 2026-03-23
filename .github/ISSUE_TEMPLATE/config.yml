@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and general discussion
+    url: https://github.com/Poryaei/pine-script-validator/issues
+    about: Use GitHub Issues if you are unsure whether something is a bug, feature request, or Pine Script v6 compatibility gap.

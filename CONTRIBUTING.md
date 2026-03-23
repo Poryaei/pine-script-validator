@@ -2,6 +2,8 @@
 
 Thanks for contributing to `pine-script-validator`.
 
+If you find a bug, false positive, missing Pine Script v6 feature, or an unclear diagnostic, please open an issue in the [GitHub Issues](https://github.com/Poryaei/pine-script-validator/issues) section first when possible.
+
 ## Development Setup
 
 ```powershell

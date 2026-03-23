@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest a new validator capability, Pine Script v6 support improvement, or agent workflow enhancement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow gap
+      description: What is missing or difficult today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: Describe the feature, CLI behavior, or validation capability you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include Pine examples, agent workflows, CI use cases, or anything else that helps.

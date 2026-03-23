@@ -197,6 +197,17 @@ pyproject.toml              Packaging and pytest configuration
 
 Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 
+## Feedback And Issues
+
+If you spot a bug, false positive, missing Pine Script v6 behavior, or a confusing diagnostic, please open an issue in the [GitHub Issues](https://github.com/Poryaei/pine-script-validator/issues) section.
+
+Helpful issue reports usually include:
+
+- the Pine snippet or file shape that triggered the problem
+- the exact command you ran
+- the validator output you received
+- the behavior you expected instead
+
 ## Scope And Limitations
 
 - This is a validator and static analysis tool, not a Pine runtime
