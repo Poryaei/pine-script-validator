@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pinescript-validator"
+version = "0.1.0"
+description = "My awesome package"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+authors = [
+    { name = "Abolfazl Poryaei", email = "poryaeiabolfazl@gmail.com" }
+]
+license = "MIT"
+keywords = ["pine-script", "tradingview", "validator", "parser", "lint"]
+
+[project.urls]
+Homepage = "https://github.com/Poryaei/pine-script-validator"
+Repository = "https://github.com/Poryaei/pine-script-validator"
+
+[project.scripts]
+pine-validator = "pinescript_validator.cli:main"
+pine-validator-audit = "pinescript_validator.audit:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pinescript_validator = ["data/*.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
