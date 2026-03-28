@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 
 from . import ast as AST
@@ -26,6 +27,7 @@ class Symbol:
     line: int
     column: int
     kind: str
+    type_name: str | None = None
     used: bool = False
 
 
@@ -121,17 +123,32 @@ class AstValidator:
                 if statement.alias:
                     self.define_symbol(scope, statement.alias, statement.line, statement.column, "namespace")
             elif isinstance(statement, AST.VariableDeclaration):
-                self.define_symbol(scope, statement.name, statement.name_line, statement.name_column, "variable")
+                self.define_symbol(
+                    scope,
+                    statement.name,
+                    statement.name_line,
+                    statement.name_column,
+                    "variable",
+                    self.extract_declared_type_name(statement.type_annotation),
+                )
             elif isinstance(statement, AST.DestructuringAssignment):
                 for variable in statement.variables:
                     self.define_symbol(scope, variable.name, variable.line, variable.column, "variable")
 
-    def define_symbol(self, scope: Scope, name: str, line: int, column: int, kind: str) -> None:
+    def define_symbol(
+        self,
+        scope: Scope,
+        name: str,
+        line: int,
+        column: int,
+        kind: str,
+        type_name: str | None = None,
+    ) -> None:
         if name == "_":
             return
         existing = scope.symbols.get(name)
         if existing is None:
-            scope.symbols[name] = Symbol(name=name, line=line, column=column, kind=kind)
+            scope.symbols[name] = Symbol(name=name, line=line, column=column, kind=kind, type_name=type_name)
             return
 
         if existing.kind == kind:
@@ -173,6 +190,8 @@ class AstValidator:
                 self.validate_type_annotation(statement.type_annotation, scope, statement.line, statement.column)
             if statement.init is not None:
                 self.validate_expression(statement.init, scope, conditional_context)
+                if self.is_bool_type_annotation(statement.type_annotation) and self.is_na_literal(statement.init):
+                    self.bool_na_error(statement.init.line, statement.init.column)
             return
 
         if isinstance(statement, AST.DestructuringAssignment):
@@ -233,6 +252,8 @@ class AstValidator:
                 if field.type_annotation is not None:
                     self.validate_type_annotation(field.type_annotation, scope, field.line, field.column)
                 if field.default_value is not None:
+                    if self.is_bool_type_annotation(field.type_annotation) and self.is_na_literal(field.default_value):
+                        self.bool_na_error(field.default_value.line, field.default_value.column)
                     if not self.is_valid_type_field_default(field.default_value):
                         self.errors.append(
                             Diagnostic(
@@ -258,15 +279,24 @@ class AstValidator:
             for param in statement.params:
                 if param.type_annotation is not None:
                     self.validate_type_annotation(param.type_annotation, scope, param.line, param.column)
-                self.define_symbol(function_scope, param.name, param.line, param.column, "parameter")
+                self.define_symbol(
+                    function_scope,
+                    param.name,
+                    param.line,
+                    param.column,
+                    "parameter",
+                    self.extract_declared_type_name(param.type_annotation),
+                )
                 if param.default_value is not None:
                     self.validate_expression(param.default_value, function_scope)
+                    if self.is_bool_type_annotation(param.type_annotation) and self.is_na_literal(param.default_value):
+                        self.bool_na_error(param.default_value.line, param.default_value.column)
             self.collect_direct_declarations(statement.body, function_scope)
             self.validate_block(statement.body, function_scope)
             return
 
         if isinstance(statement, AST.IfStatement):
-            self.validate_expression(statement.condition, scope, conditional_context)
+            self.validate_boolean_condition_expression(statement.condition, scope, conditional_context)
             consequent_scope = Scope(parent=scope)
             self.collect_direct_declarations(statement.consequent, consequent_scope)
             self.validate_block(statement.consequent, consequent_scope, conditional_context or "scope")
@@ -296,7 +326,7 @@ class AstValidator:
             return
 
         if isinstance(statement, AST.WhileStatement):
-            self.validate_expression(statement.condition, scope, conditional_context)
+            self.validate_boolean_condition_expression(statement.condition, scope, conditional_context)
             loop_scope = Scope(parent=scope)
             self.collect_direct_declarations(statement.body, loop_scope)
             self.validate_block(statement.body, loop_scope, conditional_context)
@@ -400,14 +430,14 @@ class AstValidator:
             return
 
         if isinstance(expression, AST.TernaryExpression):
-            self.validate_expression(expression.condition, scope, conditional_context)
+            self.validate_boolean_condition_expression(expression.condition, scope, conditional_context)
             ternary_context = conditional_context or "ternary"
             self.validate_expression(expression.consequent, scope, ternary_context)
             self.validate_expression(expression.alternate, scope, ternary_context)
             return
 
         if isinstance(expression, AST.IfExpression):
-            self.validate_expression(expression.condition, scope, conditional_context)
+            self.validate_boolean_condition_expression(expression.condition, scope, conditional_context)
             ternary_context = conditional_context or "ternary"
             self.validate_expression(expression.consequent, scope, ternary_context)
             self.validate_expression(expression.alternate, scope, ternary_context)
@@ -617,7 +647,23 @@ class AstValidator:
 
     def validate_call_signature(self, call: AST.CallExpression, function_name: str, spec: FunctionSpec) -> None:
         positional_args = [arg for arg in call.arguments if arg.name is None]
-        provided_named = {arg.name for arg in call.arguments if arg.name is not None}
+        named_arguments = [arg for arg in call.arguments if arg.name is not None]
+        duplicate_named = [name for name, count in Counter(arg.name for arg in named_arguments).items() if count > 1]
+        if duplicate_named:
+            for name in sorted(duplicate_named):
+                self.errors.append(
+                    Diagnostic(
+                        line=call.line,
+                        column=call.column,
+                        length=len(name),
+                        message=f'Function call cannot include repeated argument for parameter "{name}"',
+                        severity=Severity.ERROR,
+                        source="ast",
+                    )
+                )
+            return
+
+        provided_named = {arg.name for arg in named_arguments}
         if function_name.startswith("input."):
             provided_named = {
                 name
@@ -967,6 +1013,118 @@ class AstValidator:
             return signed_value, f"{expression.operator}{raw_value}", expression.line, expression.column
         return None
 
+    def validate_boolean_condition_expression(
+        self,
+        expression: AST.Expression,
+        scope: Scope,
+        conditional_context: str | None = None,
+    ) -> None:
+        self.validate_expression(expression, scope, conditional_context)
+        inferred = self.infer_boolean_expression(expression, scope)
+        if inferred is False:
+            self.errors.append(
+                Diagnostic(
+                    line=expression.line,
+                    column=expression.column,
+                    length=max(1, len(self.describe_expression(expression))),
+                    message='Condition expression must be of type "bool" in Pine Script v6',
+                    severity=Severity.ERROR,
+                    source="ast",
+                )
+            )
+
+    def infer_boolean_expression(self, expression: AST.Expression, scope: Scope) -> bool | None:
+        if isinstance(expression, AST.Literal):
+            if isinstance(expression.value, bool):
+                return True
+            return False
+
+        if isinstance(expression, AST.Identifier):
+            symbol = self.lookup_accessible_symbol(scope, expression.name, expression.line, expression.column)
+            if symbol is not None and symbol.type_name == "bool":
+                return True
+            if expression.name in self.builtins.standalone_variables:
+                return False
+            return None
+
+        if isinstance(expression, AST.MemberExpression):
+            if isinstance(expression.object, AST.Identifier):
+                if expression.object.name == "barstate":
+                    return True
+                symbol = self.lookup_accessible_symbol(scope, expression.object.name, expression.line, expression.column)
+                if symbol is not None and symbol.type_name == "bool":
+                    return True
+            return None
+
+        if isinstance(expression, AST.CallExpression):
+            function_name = self.extract_function_name(expression.callee)
+            if function_name in {"ta.cross", "ta.crossover", "ta.crossunder"}:
+                return True
+            return None
+
+        if isinstance(expression, AST.UnaryExpression):
+            if expression.operator == "not":
+                return True
+            return False
+
+        if isinstance(expression, AST.BinaryExpression):
+            if expression.operator in {"==", "!=", ">", "<", ">=", "<=", "and", "or"}:
+                return True
+            return False
+
+        if isinstance(expression, AST.TernaryExpression):
+            consequent = self.infer_boolean_expression(expression.consequent, scope)
+            alternate = self.infer_boolean_expression(expression.alternate, scope)
+            if consequent is True and alternate is True:
+                return True
+            if consequent is False or alternate is False:
+                return False
+            return None
+
+        if isinstance(expression, AST.IfExpression):
+            consequent = self.infer_boolean_expression(expression.consequent, scope)
+            alternate = self.infer_boolean_expression(expression.alternate, scope)
+            if consequent is True and alternate is True:
+                return True
+            if consequent is False or alternate is False:
+                return False
+            return None
+
+        return None
+
+    @staticmethod
+    def extract_declared_type_name(type_annotation: AST.TypeAnnotation | None) -> str | None:
+        if type_annotation is None:
+            return None
+        return type_annotation.name
+
+    def is_bool_type_annotation(self, type_annotation: AST.TypeAnnotation | None) -> bool:
+        type_name = self.extract_declared_type_name(type_annotation)
+        if type_name is None:
+            return False
+        return self.strip_array_suffix(type_name) == "bool"
+
+    @staticmethod
+    def is_na_literal(expression: AST.Expression) -> bool:
+        return isinstance(expression, AST.Literal) and expression.value == "na"
+
+    def describe_expression(self, expression: AST.Expression) -> str:
+        if isinstance(expression, AST.Identifier):
+            return expression.name
+        if isinstance(expression, AST.Literal):
+            return expression.raw
+        if isinstance(expression, AST.MemberExpression):
+            parent = self.describe_expression(expression.object)
+            return f"{parent}.{expression.property.name}"
+        if isinstance(expression, AST.CallExpression):
+            function_name = self.extract_function_name(expression.callee)
+            return function_name or "call"
+        if isinstance(expression, AST.BinaryExpression):
+            return expression.operator
+        if isinstance(expression, AST.UnaryExpression):
+            return expression.operator
+        return "expression"
+
     def mutable_argument_error(self, name: str, line: int, column: int) -> None:
         self.errors.append(
             Diagnostic(
@@ -974,6 +1132,18 @@ class AstValidator:
                 column=column,
                 length=len(name),
                 message=f'Function arguments cannot be mutable ("{name}")',
+                severity=Severity.ERROR,
+                source="ast",
+            )
+        )
+
+    def bool_na_error(self, line: int, column: int) -> None:
+        self.errors.append(
+            Diagnostic(
+                line=line,
+                column=column,
+                length=2,
+                message='Cannot assign "na" to a "bool" value in Pine Script v6',
                 severity=Severity.ERROR,
                 source="ast",
             )
