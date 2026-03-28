@@ -20,6 +20,32 @@ class ValidatorTests(unittest.TestCase):
         diagnostics = self.validator.validate_text("a = 1\na = 2")
         self.assertTrue(any("already defined" in diagnostic.message for diagnostic in diagnostics))
 
+    def test_reference_to_variable_declared_later_is_reported(self) -> None:
+        diagnostics = self.validator.validate_text(
+            "f() =>\n    array.size(ltf_candidates)\n\nvar string[] ltf_candidates = array.new_string()"
+        )
+        self.assertTrue(any("Undefined variable 'ltf_candidates'" in diagnostic.message for diagnostic in diagnostics))
+
+    def test_reference_to_variable_declared_later_on_same_line_is_reported(self) -> None:
+        diagnostics = self.validator.validate_text("a = b, b = 1")
+        self.assertTrue(any("Undefined variable 'b'" in diagnostic.message for diagnostic in diagnostics))
+
+    def test_reference_to_variable_declared_earlier_on_same_line_is_allowed(self) -> None:
+        diagnostics = self.validator.validate_text("b = 1, a = b")
+        self.assertFalse(any("Undefined variable 'b'" in diagnostic.message for diagnostic in diagnostics))
+
+    def test_call_to_function_declared_later_is_reported(self) -> None:
+        diagnostics = self.validator.validate_text(
+            "f_get_delta_color(x) =>\n    f_get_positive_color()\n\nf_get_positive_color() =>\n    color.green"
+        )
+        self.assertTrue(any("Undefined function 'f_get_positive_color'" in diagnostic.message for diagnostic in diagnostics))
+
+    def test_call_to_function_declared_earlier_is_allowed(self) -> None:
+        diagnostics = self.validator.validate_text(
+            "f_get_positive_color() =>\n    color.green\n\nf_get_delta_color(x) =>\n    f_get_positive_color()"
+        )
+        self.assertFalse(any("Undefined function 'f_get_positive_color'" in diagnostic.message for diagnostic in diagnostics))
+
     def test_unused_variable(self) -> None:
         diagnostics = self.validator.validate_text('indicator("Test")\nvalue = close')
         self.assertTrue(any("never used" in diagnostic.message for diagnostic in diagnostics))
@@ -27,6 +53,68 @@ class ValidatorTests(unittest.TestCase):
     def test_invalid_named_argument(self) -> None:
         diagnostics = self.validator.validate_text('plot(close, invalid_param=true)')
         self.assertTrue(any("Invalid parameter 'invalid_param'" in diagnostic.message for diagnostic in diagnostics))
+
+    def test_indicator_max_polylines_count_range_is_validated(self) -> None:
+        diagnostics = self.validator.validate_text(
+            'indicator("x", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_polylines_count = 200)'
+        )
+        self.assertTrue(
+            any(
+                'Invalid value "200" for "max_polylines_count" parameter of the "indicator()" function. It must be between 1 and 100'
+                in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
+    def test_indicator_max_bars_back_range_is_validated(self) -> None:
+        diagnostics = self.validator.validate_text('indicator("x", max_bars_back = 5001)')
+        self.assertTrue(
+            any(
+                'Invalid value "5001" for "max_bars_back" parameter of the "indicator()" function. It must be between 1 and 5000'
+                in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
+    def test_indicator_calc_bars_count_must_be_positive(self) -> None:
+        diagnostics = self.validator.validate_text('indicator("x", calc_bars_count = 0)')
+        self.assertTrue(
+            any(
+                'Invalid value "0" for "calc_bars_count" parameter of the "indicator()" function. It must be greater than or equal to 1'
+                in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
+    def test_indicator_negative_max_bars_back_is_rejected(self) -> None:
+        diagnostics = self.validator.validate_text('indicator("x", max_bars_back = -1)')
+        self.assertTrue(
+            any(
+                'Invalid value "-1" for "max_bars_back" parameter of the "indicator()" function. It must be between 1 and 5000'
+                in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
+    def test_strategy_pyramiding_range_is_validated(self) -> None:
+        diagnostics = self.validator.validate_text('strategy("x", pyramiding = 101)')
+        self.assertTrue(
+            any(
+                'Invalid value "101" for "pyramiding" parameter of the "strategy()" function. It must be between 0 and 100'
+                in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
+    def test_strategy_negative_pyramiding_is_rejected(self) -> None:
+        diagnostics = self.validator.validate_text('strategy("x", pyramiding = -1)')
+        self.assertTrue(
+            any(
+                'Invalid value "-1" for "pyramiding" parameter of the "strategy()" function. It must be between 0 and 100'
+                in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
 
     def test_destructuring_reassignment_is_supported(self) -> None:
         diagnostics = self.validator.validate_text("[a, b] := foo()")
@@ -64,6 +152,18 @@ foo(x) =>
         code = "var chart.point[] _points = array.new<chart.point>()"
         diagnostics = self.validator.validate_text(code)
         self.assertEqual([d for d in diagnostics if d.severity == Severity.ERROR], [])
+
+    def test_invalid_builtin_namespace_member_type_keyword_is_reported(self) -> None:
+        diagnostics = self.validator.validate_text("label.style x = label.style_label_up")
+        self.assertTrue(any('"label.style" is not a valid type keyword.' in d.message for d in diagnostics))
+
+    def test_import_alias_dotted_type_keyword_is_accepted(self) -> None:
+        code = """
+import user/lib/1 as pt
+pt.point p = na
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertFalse(any('"pt.point" is not a valid type keyword.' in d.message for d in diagnostics))
 
     def test_switch_statement_parses(self) -> None:
         code = """
@@ -154,6 +254,36 @@ f(flag) =>
         diagnostics = self.validator.validate_text(code)
         self.assertTrue(any('The function "ta.cum" should be called on each calculation for consistency.' in d.message for d in diagnostics))
         self.assertTrue(any("extract the call from the ternary operator or from the scope" in d.message for d in diagnostics))
+
+    def test_consistency_warning_for_ternary_ta_highest_and_ta_lowest(self) -> None:
+        code = """
+f_calc(cond, length) =>
+    hi = cond ? ta.highest(high[1], length) : na
+    lo = cond ? ta.lowest(low[1], length) : na
+    [hi, lo]
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertTrue(any('The function "ta.highest" should be called on each calculation for consistency.' in d.message for d in diagnostics))
+        self.assertTrue(any('The function "ta.lowest" should be called on each calculation for consistency.' in d.message for d in diagnostics))
+
+    def test_consistency_warning_for_conditional_cross_functions_and_sensitive_wrapper(self) -> None:
+        code = """
+f_detect_breakout_direction(level_up, level_down) =>
+    int direction = 0
+    if active
+        if ta.crossover(close, level_up)
+            direction := 1
+        else if ta.crossunder(close, level_down)
+            direction := -1
+    direction
+
+if ready
+    breakout_direction = f_detect_breakout_direction(high, low)
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertTrue(any('The function "ta.crossover" should be called on each calculation for consistency.' in d.message for d in diagnostics))
+        self.assertTrue(any('The function "ta.crossunder" should be called on each calculation for consistency.' in d.message for d in diagnostics))
+        self.assertTrue(any('The function "f_detect_breakout_direction" should be called on each calculation for consistency.' in d.message for d in diagnostics))
 
     def test_pure_user_function_in_conditional_scope_does_not_warn(self) -> None:
         code = """
@@ -310,6 +440,44 @@ x = ta.dema(close, 20)
         diagnostics = self.validator.validate_text(code)
         self.assertFalse(any("Unknown property 'dema' on namespace 'ta'" in d.message for d in diagnostics))
         self.assertFalse(any("Undefined function 'ta.dema'" in d.message for d in diagnostics))
+
+    def test_type_field_default_cannot_reference_variable(self) -> None:
+        code = """
+direction_none = 0
+
+type TradeRecord
+    int direction = direction_none
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertTrue(any('Cannot use "direction_none" as the default value of a type\'s field.' in d.message for d in diagnostics))
+
+    def test_function_argument_reassignment_is_reported_as_mutable(self) -> None:
+        code = """
+f_update(int x) =>
+    x := 1
+    x
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertTrue(any('Function arguments cannot be mutable ("x")' in d.message for d in diagnostics))
+
+    def test_function_argument_member_reassignment_is_not_reported_as_mutable(self) -> None:
+        code = """
+type TradeRecord
+    bool closed = false
+
+f_update(TradeRecord trade) =>
+    trade.closed := true
+    trade
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertFalse(any('Function arguments cannot be mutable ("trade")' in d.message for d in diagnostics))
+
+    def test_line_new_positional_type_mismatches_are_reported(self) -> None:
+        diagnostics = self.validator.validate_text(
+            "ln = line.new(bar_index, high, bar_index, high, xloc.bar_index, color.new(color.lime, 20), 1, line.style_dotted)"
+        )
+        self.assertTrue(any('Cannot call "line.new" with argument "extend"=' in d.message for d in diagnostics))
+        self.assertTrue(any('Cannot call "line.new" with argument "color"="1".' in d.message for d in diagnostics))
 
     def test_method_keyword_can_be_variable_name(self) -> None:
         diagnostics = self.validator.validate_text('method = input.string("ADX")')

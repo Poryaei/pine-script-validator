@@ -6,7 +6,18 @@ from . import ast as AST
 from .data_loader import KEYWORDS, TYPE_NAMES, FunctionSpec, load_builtin_data, load_function_specs
 from .diagnostics import Diagnostic, Severity
 
-CONSISTENCY_SENSITIVE_BUILTINS = frozenset({"ta.cum"})
+CONSISTENCY_SENSITIVE_BUILTINS = frozenset(
+    {
+        "ta.cum",
+        "ta.cross",
+        "ta.crossover",
+        "ta.crossunder",
+        "ta.highest",
+        "ta.lowest",
+        "ta.highestbars",
+        "ta.lowestbars",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -158,6 +169,8 @@ class AstValidator:
 
     def validate_statement(self, statement: AST.Statement, scope: Scope, conditional_context: str | None = None) -> None:
         if isinstance(statement, AST.VariableDeclaration):
+            if statement.type_annotation is not None:
+                self.validate_type_annotation(statement.type_annotation, scope, statement.line, statement.column)
             if statement.init is not None:
                 self.validate_expression(statement.init, scope, conditional_context)
             return
@@ -170,9 +183,11 @@ class AstValidator:
             if statement.name == "_":
                 self.validate_expression(statement.value, scope, conditional_context)
                 return
-            symbol = scope.lookup(statement.name)
+            symbol = self.lookup_accessible_symbol(scope, statement.name, statement.name_line, statement.name_column)
             if symbol is None:
                 self.undefined_name(statement.name, statement.name_line, statement.name_column)
+            elif symbol.kind == "parameter":
+                self.mutable_argument_error(statement.name, statement.name_line, statement.name_column)
             self.validate_expression(statement.value, scope, conditional_context)
             return
 
@@ -180,9 +195,11 @@ class AstValidator:
             if statement.name == "_":
                 self.validate_expression(statement.value, scope, conditional_context)
                 return
-            symbol = scope.lookup(statement.name)
+            symbol = self.lookup_accessible_symbol(scope, statement.name, statement.name_line, statement.name_column)
             if symbol is None:
                 self.undefined_name(statement.name, statement.name_line, statement.name_column)
+            elif symbol.kind == "parameter":
+                self.mutable_argument_error(statement.name, statement.name_line, statement.name_column)
             else:
                 symbol.used = True
             self.validate_expression(statement.value, scope, conditional_context)
@@ -193,7 +210,7 @@ class AstValidator:
                 if statement.target.name == "_":
                     self.validate_expression(statement.value, scope, conditional_context)
                     return
-                symbol = scope.lookup(statement.target.name)
+                symbol = self.lookup_accessible_symbol(scope, statement.target.name, statement.target.line, statement.target.column)
                 if symbol is None:
                     self.undefined_name(statement.target.name, statement.target.line, statement.target.column)
                 else:
@@ -213,7 +230,23 @@ class AstValidator:
 
         if isinstance(statement, AST.TypeDeclaration):
             for field in statement.fields:
+                if field.type_annotation is not None:
+                    self.validate_type_annotation(field.type_annotation, scope, field.line, field.column)
                 if field.default_value is not None:
+                    if not self.is_valid_type_field_default(field.default_value):
+                        self.errors.append(
+                            Diagnostic(
+                                line=field.default_value.line,
+                                column=field.default_value.column,
+                                length=len(self.describe_type_field_default(field.default_value)),
+                                message=(
+                                    f'Cannot use "{self.describe_type_field_default(field.default_value)}" as the default value of a type\'s field. '
+                                    "The default value cannot be a function, variable or calculation."
+                                ),
+                                severity=Severity.WARNING,
+                                source="ast",
+                            )
+                        )
                     self.validate_expression(field.default_value, scope, conditional_context)
             return
 
@@ -223,6 +256,8 @@ class AstValidator:
         if isinstance(statement, AST.FunctionDeclaration):
             function_scope = Scope(parent=scope)
             for param in statement.params:
+                if param.type_annotation is not None:
+                    self.validate_type_annotation(param.type_annotation, scope, param.line, param.column)
                 self.define_symbol(function_scope, param.name, param.line, param.column, "parameter")
                 if param.default_value is not None:
                     self.validate_expression(param.default_value, function_scope)
@@ -282,7 +317,7 @@ class AstValidator:
             return
 
         if isinstance(expression, AST.Identifier):
-            symbol = scope.lookup(expression.name)
+            symbol = self.lookup_accessible_symbol(scope, expression.name, expression.line, expression.column)
             if symbol is not None:
                 symbol.used = True
                 return
@@ -297,7 +332,7 @@ class AstValidator:
 
         if isinstance(expression, AST.MemberExpression):
             if isinstance(expression.object, AST.Identifier):
-                symbol = scope.lookup(expression.object.name)
+                symbol = self.lookup_accessible_symbol(scope, expression.object.name, expression.line, expression.column)
                 if symbol is not None and symbol.kind in {"type", "namespace"}:
                     return
                 if expression.object.name in self.builtins.known_namespaces:
@@ -327,7 +362,7 @@ class AstValidator:
             if function_name is None:
                 self.validate_expression(expression.callee, scope, conditional_context)
                 return
-            symbol = scope.lookup(function_name)
+            symbol = self.lookup_accessible_symbol(scope, function_name, expression.line, expression.column)
             if symbol is not None and symbol.kind == "function":
                 symbol.used = True
             resolved_function_name = self.resolve_generic_function_name(function_name)
@@ -651,6 +686,9 @@ class AstValidator:
         self.errors.extend(best_errors)
 
     def validate_special_cases(self, call: AST.CallExpression, function_name: str) -> None:
+        if function_name == "line.new":
+            self.validate_line_new_positional_types(call)
+
         if function_name == "plotshape":
             for argument in call.arguments:
                 if argument.name == "shape":
@@ -682,6 +720,7 @@ class AstValidator:
                     break
 
         if function_name in {"indicator", "strategy"}:
+            self.validate_declaration_parameter_ranges(call, function_name)
             has_timeframe = any(argument.name == "timeframe" for argument in call.arguments)
             has_timeframe_gaps = any(argument.name == "timeframe_gaps" for argument in call.arguments)
             if has_timeframe_gaps and not has_timeframe:
@@ -695,6 +734,275 @@ class AstValidator:
                         source="ast",
                     )
                 )
+
+    def validate_declaration_parameter_ranges(self, call: AST.CallExpression, function_name: str) -> None:
+        range_constraints: dict[str, tuple[int, int | None]] = {
+            "max_bars_back": (1, 5000),
+            "max_boxes_count": (1, 500),
+            "max_labels_count": (1, 500),
+            "max_lines_count": (1, 500),
+            "max_polylines_count": (1, 100),
+            "calc_bars_count": (1, None),
+        }
+        if function_name == "strategy":
+            range_constraints["pyramiding"] = (0, 100)
+
+        for argument in call.arguments:
+            if argument.name not in range_constraints:
+                continue
+            numeric_literal = self.extract_integer_literal(argument.value)
+            if numeric_literal is None:
+                continue
+            minimum, maximum = range_constraints[argument.name]
+            numeric_value, raw_value, line, column = numeric_literal
+            if maximum is None:
+                if numeric_value >= minimum:
+                    continue
+                message = (
+                    f'Invalid value "{raw_value}" for "{argument.name}" parameter of the "{function_name}()" function. '
+                    f"It must be greater than or equal to {minimum}"
+                )
+            else:
+                if minimum <= numeric_value <= maximum:
+                    continue
+                message = (
+                    f'Invalid value "{raw_value}" for "{argument.name}" parameter of the "{function_name}()" function. '
+                    f"It must be between {minimum} and {maximum}"
+                )
+
+            self.errors.append(
+                Diagnostic(
+                    line=line,
+                    column=column,
+                    length=len(raw_value),
+                    message=message,
+                    severity=Severity.ERROR,
+                    source="ast",
+                )
+            )
+
+    def validate_line_new_positional_types(self, call: AST.CallExpression) -> None:
+        positional_args = [argument.value for argument in call.arguments if argument.name is None]
+        if len(positional_args) < 6:
+            return
+
+        checks = [
+            (5, "extend", {"extend"}, "series string"),
+            (6, "color", {"color"}, "series color"),
+            (7, "style", {"line_style"}, "series string"),
+            (8, "width", {"number"}, "series int"),
+            (9, "force_overlay", {"bool"}, "series bool"),
+        ]
+
+        for index, param_name, expected_categories, expected_type in checks:
+            if index >= len(positional_args):
+                break
+            actual_category, actual_type, actual_description = self.describe_argument_type(positional_args[index])
+            if actual_category is None or actual_category in expected_categories:
+                continue
+            self.errors.append(
+                Diagnostic(
+                    line=positional_args[index].line,
+                    column=positional_args[index].column,
+                    length=max(1, len(actual_description)),
+                    message=(
+                        f'Cannot call "line.new" with argument "{param_name}"="{actual_description}". '
+                        f'An argument of "{actual_type}" type was used but a "{expected_type}" is expected.'
+                    ),
+                    severity=Severity.ERROR,
+                    source="ast",
+                )
+            )
+
+    def describe_argument_type(self, expression: AST.Expression) -> tuple[str | None, str, str]:
+        if isinstance(expression, AST.Literal):
+            if isinstance(expression.value, bool):
+                return "bool", "literal bool", expression.raw
+            if isinstance(expression.value, float):
+                if "." not in expression.raw:
+                    return "number", "literal int", expression.raw
+                return "number", "literal float", expression.raw
+            if expression.value == "na":
+                return "na", "literal na", expression.raw
+            return "string", "literal string", expression.raw
+
+        if isinstance(expression, AST.Identifier):
+            return None, "unknown", expression.name
+
+        if isinstance(expression, AST.MemberExpression) and isinstance(expression.object, AST.Identifier):
+            full_name = f"{expression.object.name}.{expression.property.name}"
+            if expression.object.name == "extend":
+                return "extend", "series string", full_name
+            if expression.object.name == "xloc":
+                return "xloc", "series string", full_name
+            if expression.object.name == "line" and expression.property.name.startswith("style_"):
+                return "line_style", "series string", full_name
+            if expression.object.name == "color":
+                return "color", "const color", full_name
+            return None, "unknown", full_name
+
+        if isinstance(expression, AST.CallExpression):
+            function_name = self.extract_function_name(expression.callee)
+            if function_name and function_name.startswith("color."):
+                return "color", "const color", f'call "{function_name}" (const color)'
+            if function_name:
+                return None, "unknown", f'call "{function_name}"'
+            return None, "unknown", "call"
+
+        if isinstance(expression, AST.UnaryExpression):
+            category, actual_type, actual_description = self.describe_argument_type(expression.argument)
+            return category, actual_type, f"{expression.operator}{actual_description}"
+
+        return None, "unknown", "expression"
+
+    def is_valid_type_field_default(self, expression: AST.Expression) -> bool:
+        if isinstance(expression, AST.Literal):
+            return True
+        if isinstance(expression, AST.UnaryExpression):
+            return isinstance(expression.argument, AST.Literal)
+        if isinstance(expression, AST.MemberExpression) and isinstance(expression.object, AST.Identifier):
+            return expression.object.name in self.builtins.known_namespaces
+        return False
+
+    def describe_type_field_default(self, expression: AST.Expression) -> str:
+        if isinstance(expression, AST.Identifier):
+            return expression.name
+        if isinstance(expression, AST.MemberExpression) and isinstance(expression.object, AST.Identifier):
+            return f"{expression.object.name}.{expression.property.name}"
+        if isinstance(expression, AST.Literal):
+            return expression.raw
+        if isinstance(expression, AST.CallExpression):
+            function_name = self.extract_function_name(expression.callee)
+            return function_name or "call"
+        return "expression"
+
+    def validate_type_annotation(self, type_annotation: AST.TypeAnnotation, scope: Scope, line: int, column: int) -> None:
+        if self.is_valid_type_keyword(type_annotation.name, scope, line, column):
+            return
+        self.errors.append(
+            Diagnostic(
+                line=line,
+                column=column,
+                length=len(type_annotation.name),
+                message=f'"{type_annotation.name}" is not a valid type keyword.',
+                severity=Severity.ERROR,
+                source="ast",
+            )
+        )
+
+    def is_valid_type_keyword(self, type_name: str, scope: Scope, line: int, column: int) -> bool:
+        normalized = self.strip_array_suffix(type_name)
+        generic_name, generic_args = self.split_generic_type(normalized)
+
+        if generic_args is not None:
+            if generic_name == "array":
+                return len(generic_args) == 1 and self.is_valid_type_keyword(generic_args[0], scope, line, column)
+            if generic_name == "matrix":
+                return len(generic_args) == 1 and self.is_valid_type_keyword(generic_args[0], scope, line, column)
+            if generic_name == "map":
+                return len(generic_args) == 2 and all(self.is_valid_type_keyword(arg, scope, line, column) for arg in generic_args)
+            return False
+
+        if normalized in TYPE_NAMES:
+            return True
+
+        symbol = self.lookup_accessible_symbol(scope, normalized, line, column)
+        if symbol is not None and symbol.kind in {"type", "namespace"}:
+            return True
+
+        if "." in normalized:
+            if f"{normalized}.new" in self.builtins.function_paths:
+                return True
+            root = normalized.split(".", 1)[0]
+            root_symbol = self.lookup_accessible_symbol(scope, root, line, column)
+            if root_symbol is not None and root_symbol.kind == "namespace":
+                return True
+            return False
+
+        return False
+
+    @staticmethod
+    def strip_array_suffix(type_name: str) -> str:
+        normalized = type_name.strip()
+        while normalized.endswith("[]"):
+            normalized = normalized[:-2].strip()
+        return normalized
+
+    @staticmethod
+    def split_generic_type(type_name: str) -> tuple[str, list[str] | None]:
+        lt_index = type_name.find("<")
+        if lt_index == -1 or not type_name.endswith(">"):
+            return type_name, None
+
+        outer_name = type_name[:lt_index].strip()
+        inner = type_name[lt_index + 1 : -1]
+        args: list[str] = []
+        start = 0
+        depth = 0
+        for index, char in enumerate(inner):
+            if char == "<":
+                depth += 1
+            elif char == ">":
+                depth -= 1
+            elif char == "," and depth == 0:
+                args.append(inner[start:index].strip())
+                start = index + 1
+        args.append(inner[start:].strip())
+        if any(not arg for arg in args):
+            return outer_name, []
+        return outer_name, args
+
+    def extract_integer_literal(self, expression: AST.Expression) -> tuple[int, str, int, int] | None:
+        if isinstance(expression, AST.Literal) and isinstance(expression.value, float):
+            integer_value = int(expression.value)
+            if expression.value == float(integer_value):
+                return integer_value, expression.raw, expression.line, expression.column
+            return None
+        if isinstance(expression, AST.UnaryExpression) and expression.operator in {"-", "+"}:
+            inner = self.extract_integer_literal(expression.argument)
+            if inner is None:
+                return None
+            value, raw_value, line, column = inner
+            signed_value = value if expression.operator == "+" else -value
+            return signed_value, f"{expression.operator}{raw_value}", expression.line, expression.column
+        return None
+
+    def mutable_argument_error(self, name: str, line: int, column: int) -> None:
+        self.errors.append(
+            Diagnostic(
+                line=line,
+                column=column,
+                length=len(name),
+                message=f'Function arguments cannot be mutable ("{name}")',
+                severity=Severity.ERROR,
+                source="ast",
+            )
+        )
+
+    def lookup_accessible_symbol(
+        self,
+        scope: Scope,
+        name: str,
+        reference_line: int,
+        reference_column: int | None = None,
+    ) -> Symbol | None:
+        current_scope: Scope | None = scope
+        while current_scope is not None:
+            symbol = current_scope.symbols.get(name)
+            if symbol is not None:
+                if symbol.kind in {"variable", "function", "type", "namespace"}:
+                    declared_later_line = symbol.line > reference_line
+                    declared_later_column = (
+                        reference_column is not None
+                        and symbol.line == reference_line
+                        and symbol.column > reference_column
+                    )
+                    if declared_later_line or declared_later_column:
+                        current_scope = current_scope.parent
+                        continue
+                return symbol
+            current_scope = current_scope.parent
+        return None
 
     def check_unused_variables(self, scope: Scope) -> None:
         for symbol in scope.all_symbols():
