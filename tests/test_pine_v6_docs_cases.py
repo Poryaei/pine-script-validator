@@ -10,6 +10,22 @@ class PineV6DocsCasesTests(unittest.TestCase):
     def setUp(self) -> None:
         self.validator = PineScriptValidator()
 
+    def test_request_footprint_and_volume_row_types_are_accepted(self) -> None:
+        code = """
+indicator("Footprint support", overlay = true)
+ticksPerRow = input.int(4, "Ticks per row", minval = 1)
+valueAreaPercent = input.int(70, "Value area percent", minval = 1, maxval = 100)
+imbalancePercent = input.int(300, "Imbalance percent", minval = 1)
+
+footprint reqFootprint = request.footprint(ticksPerRow, valueAreaPercent, imbalancePercent)
+array<volume_row> rows = reqFootprint.rows()
+if array.size(rows) > 0
+    volume_row row = array.get(rows, 0)
+    x = row.total_volume()
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertFalse(any(d.severity == Severity.ERROR for d in diagnostics))
+
     def test_strategy_when_parameter_is_rejected(self) -> None:
         code = """
 strategy("Conditional strategy", overlay = true)

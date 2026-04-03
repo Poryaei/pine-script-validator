@@ -67,6 +67,8 @@ TYPE_NAMES = {
     "table",
     "polyline",
     "linefill",
+    "footprint",
+    "volume_row",
     "series",
     "simple",
     "const",
@@ -105,8 +107,35 @@ ADDITIONAL_CONSTANT_NAMESPACES = {
     "strategy",
     "table",
     "text",
+    "footprint",
+    "volume_row",
     "xloc",
     "yloc",
+}
+
+SUPPLEMENTAL_NAMESPACE_MEMBERS = {
+    "request": {"footprint"},
+    "footprint": {
+        "buy_volume",
+        "sell_volume",
+        "total_volume",
+        "delta",
+        "poc",
+        "vah",
+        "val",
+        "get_row_by_price",
+        "rows",
+    },
+    "volume_row": {
+        "up_price",
+        "down_price",
+        "buy_volume",
+        "sell_volume",
+        "total_volume",
+        "delta",
+        "has_buy_imbalance",
+        "has_sell_imbalance",
+    },
 }
 
 
@@ -301,6 +330,140 @@ PYTHON_OVERRIDE_SPECS = {
             }
         ],
     },
+    "request.footprint": {
+        "name": "request.footprint",
+        "syntax": "request.footprint(ticks_per_row, va_percent?, imbalance_percent?)",
+        "overloads": [
+            {
+                "requiredParams": ["ticks_per_row"],
+                "optionalParams": ["va_percent", "imbalance_percent"],
+                "signature": "request.footprint(ticks_per_row, va_percent?, imbalance_percent?)",
+            }
+        ],
+    },
+    "footprint.buy_volume": {
+        "name": "footprint.buy_volume",
+        "syntax": "footprint.buy_volume(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "footprint.buy_volume(id)"}
+        ],
+    },
+    "footprint.sell_volume": {
+        "name": "footprint.sell_volume",
+        "syntax": "footprint.sell_volume(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "footprint.sell_volume(id)"}
+        ],
+    },
+    "footprint.total_volume": {
+        "name": "footprint.total_volume",
+        "syntax": "footprint.total_volume(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "footprint.total_volume(id)"}
+        ],
+    },
+    "footprint.delta": {
+        "name": "footprint.delta",
+        "syntax": "footprint.delta(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "footprint.delta(id)"}
+        ],
+    },
+    "footprint.poc": {
+        "name": "footprint.poc",
+        "syntax": "footprint.poc(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "footprint.poc(id)"}
+        ],
+    },
+    "footprint.vah": {
+        "name": "footprint.vah",
+        "syntax": "footprint.vah(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "footprint.vah(id)"}
+        ],
+    },
+    "footprint.val": {
+        "name": "footprint.val",
+        "syntax": "footprint.val(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "footprint.val(id)"}
+        ],
+    },
+    "footprint.get_row_by_price": {
+        "name": "footprint.get_row_by_price",
+        "syntax": "footprint.get_row_by_price(id, price)",
+        "overloads": [
+            {
+                "requiredParams": ["id", "price"],
+                "optionalParams": [],
+                "signature": "footprint.get_row_by_price(id, price)",
+            }
+        ],
+    },
+    "footprint.rows": {
+        "name": "footprint.rows",
+        "syntax": "footprint.rows(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "footprint.rows(id)"}
+        ],
+    },
+    "volume_row.up_price": {
+        "name": "volume_row.up_price",
+        "syntax": "volume_row.up_price(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "volume_row.up_price(id)"}
+        ],
+    },
+    "volume_row.down_price": {
+        "name": "volume_row.down_price",
+        "syntax": "volume_row.down_price(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "volume_row.down_price(id)"}
+        ],
+    },
+    "volume_row.buy_volume": {
+        "name": "volume_row.buy_volume",
+        "syntax": "volume_row.buy_volume(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "volume_row.buy_volume(id)"}
+        ],
+    },
+    "volume_row.sell_volume": {
+        "name": "volume_row.sell_volume",
+        "syntax": "volume_row.sell_volume(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "volume_row.sell_volume(id)"}
+        ],
+    },
+    "volume_row.total_volume": {
+        "name": "volume_row.total_volume",
+        "syntax": "volume_row.total_volume(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "volume_row.total_volume(id)"}
+        ],
+    },
+    "volume_row.delta": {
+        "name": "volume_row.delta",
+        "syntax": "volume_row.delta(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "volume_row.delta(id)"}
+        ],
+    },
+    "volume_row.has_buy_imbalance": {
+        "name": "volume_row.has_buy_imbalance",
+        "syntax": "volume_row.has_buy_imbalance(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "volume_row.has_buy_imbalance(id)"}
+        ],
+    },
+    "volume_row.has_sell_imbalance": {
+        "name": "volume_row.has_sell_imbalance",
+        "syntax": "volume_row.has_sell_imbalance(id)",
+        "overloads": [
+            {"requiredParams": ["id"], "optionalParams": [], "signature": "volume_row.has_sell_imbalance(id)"}
+        ],
+    },
     "box.new": {
         "name": "box.new",
         "syntax": "box.new(top_left, bottom_right, ...) or box.new(left, top, right, bottom, ...)",
@@ -437,6 +600,7 @@ def load_builtin_data() -> BuiltinData:
         for name in raw.get("funcs", {}).keys()
         if not OVERLOAD_SUFFIX_RE.search(name)
     }
+    raw_funcs.update(PYTHON_OVERRIDE_SPECS.keys())
 
     namespace_members: dict[str, set[str]] = {}
     for full_name in raw_vars | raw_funcs:
@@ -447,6 +611,9 @@ def load_builtin_data() -> BuiltinData:
         namespace_members.setdefault(namespace, set()).add(member)
 
     for namespace, members in _load_namespace_constants().items():
+        namespace_members.setdefault(namespace, set()).update(members)
+
+    for namespace, members in SUPPLEMENTAL_NAMESPACE_MEMBERS.items():
         namespace_members.setdefault(namespace, set()).update(members)
 
     for namespace in ADDITIONAL_CONSTANT_NAMESPACES:
