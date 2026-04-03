@@ -86,6 +86,43 @@ class ValidatorTests(unittest.TestCase):
             )
         )
 
+    def test_plot_count_limit_allows_up_to_64(self) -> None:
+        code = 'indicator("x")\n' + "\n".join(f"plot(close, title = \"P{i}\")" for i in range(64))
+        diagnostics = self.validator.validate_text(code)
+        self.assertFalse(any("Estimated plot count is" in diagnostic.message for diagnostic in diagnostics))
+
+    def test_plot_count_limit_reports_when_exceeded(self) -> None:
+        code = 'indicator("x")\n' + "\n".join(f"plot(close, title = \"P{i}\")" for i in range(65))
+        diagnostics = self.validator.validate_text(code)
+        self.assertTrue(
+            any(
+                "Estimated plot count is 65, which exceeds the Pine Script limit of 64" in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
+    def test_dynamic_plot_color_counts_as_additional_plot(self) -> None:
+        code = """
+indicator("x")
+dynamicColor = close > open ? color.green : color.red
+""" + "\n".join(f'plot(close, title = "P{i}", color = dynamicColor)' for i in range(33))
+        diagnostics = self.validator.validate_text(code)
+        self.assertTrue(
+            any(
+                "Estimated plot count is 66, which exceeds the Pine Script limit of 64" in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
+    def test_fill_with_const_color_does_not_consume_plot_count(self) -> None:
+        code = """
+indicator("x")
+p1 = plot(close)
+p2 = plot(open)
+""" + "\n".join(f'fill(p1, p2, color = color.green)' for _ in range(80))
+        diagnostics = self.validator.validate_text(code)
+        self.assertFalse(any("Estimated plot count is" in diagnostic.message for diagnostic in diagnostics))
+
     def test_indicator_negative_max_bars_back_is_rejected(self) -> None:
         diagnostics = self.validator.validate_text('indicator("x", max_bars_back = -1)')
         self.assertTrue(

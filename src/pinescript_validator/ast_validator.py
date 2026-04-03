@@ -20,6 +20,8 @@ CONSISTENCY_SENSITIVE_BUILTINS = frozenset(
     }
 )
 
+PLOT_COUNT_LIMIT = 64
+
 
 @dataclass(slots=True)
 class Symbol:
@@ -71,11 +73,15 @@ class AstValidator:
         self.errors: list[Diagnostic] = []
         self.function_declarations: dict[str, AST.FunctionDeclaration] = {}
         self.consistency_sensitive_functions: set[str] = set(CONSISTENCY_SENSITIVE_BUILTINS)
+        self.plot_count = 0
+        self.plot_count_reported = False
 
     def validate(self, program: AST.Program) -> list[Diagnostic]:
         self.errors = []
         self.function_declarations = {}
         self.consistency_sensitive_functions = set(CONSISTENCY_SENSITIVE_BUILTINS)
+        self.plot_count = 0
+        self.plot_count_reported = False
         self.collect_function_declarations(program.body)
         self.mark_consistency_sensitive_functions()
         global_scope = Scope()
@@ -418,6 +424,7 @@ class AstValidator:
             if spec is not None:
                 self.validate_call_signature(expression, resolved_function_name, spec)
             self.validate_special_cases(expression, resolved_function_name)
+            self.track_plot_count(expression, resolved_function_name, scope)
             return
 
         if isinstance(expression, AST.BinaryExpression):
@@ -859,6 +866,129 @@ class AstValidator:
                     source="ast",
                 )
             )
+
+    def track_plot_count(self, call: AST.CallExpression, function_name: str, scope: Scope) -> None:
+        plot_count = self.estimate_plot_count(call, function_name, scope)
+        if plot_count <= 0:
+            return
+
+        self.plot_count += plot_count
+        if self.plot_count_reported or self.plot_count <= PLOT_COUNT_LIMIT:
+            return
+
+        self.plot_count_reported = True
+        self.errors.append(
+            Diagnostic(
+                line=call.line,
+                column=call.column,
+                length=len(function_name),
+                message=(
+                    f'Estimated plot count is {self.plot_count}, which exceeds the Pine Script limit of {PLOT_COUNT_LIMIT}. '
+                    "Reduce plot-producing calls or simplify dynamic color usage."
+                ),
+                severity=Severity.ERROR,
+                source="ast",
+            )
+        )
+
+    def estimate_plot_count(self, call: AST.CallExpression, function_name: str, scope: Scope) -> int:
+        if function_name == "plot":
+            return 1 + self.dynamic_plot_argument_count(call, scope, ("color",))
+        if function_name == "plotarrow":
+            return 1 + self.dynamic_plot_argument_count(call, scope, ("colorup", "colordown"))
+        if function_name == "plotbar":
+            return 4 + self.dynamic_plot_argument_count(call, scope, ("color",))
+        if function_name == "plotcandle":
+            return 4 + self.dynamic_plot_argument_count(call, scope, ("color", "wickcolor", "bordercolor"))
+        if function_name in {"plotchar", "plotshape"}:
+            return 1 + self.dynamic_plot_argument_count(call, scope, ("color", "textcolor"))
+        if function_name in {"alertcondition", "bgcolor", "barcolor"}:
+            return 1
+        if function_name == "fill":
+            color_argument = self.get_argument_value(call, "color", 2)
+            return 1 if color_argument is not None and not self.is_const_plot_expression(color_argument, scope) else 0
+        return 0
+
+    def dynamic_plot_argument_count(
+        self,
+        call: AST.CallExpression,
+        scope: Scope,
+        parameter_names: tuple[str, ...],
+    ) -> int:
+        return sum(
+            1
+            for index, parameter_name in enumerate(parameter_names)
+            if (
+                argument := self.get_argument_value(call, parameter_name, index + 1)
+            ) is not None
+            and not self.is_const_plot_expression(argument, scope)
+        )
+
+    def get_argument_value(self, call: AST.CallExpression, name: str, positional_index: int) -> AST.Expression | None:
+        for argument in call.arguments:
+            if argument.name == name:
+                return argument.value
+
+        positional_arguments = [argument.value for argument in call.arguments if argument.name is None]
+        if positional_index < len(positional_arguments):
+            return positional_arguments[positional_index]
+        return None
+
+    def is_const_plot_expression(self, expression: AST.Expression, scope: Scope) -> bool:
+        if isinstance(expression, AST.Literal):
+            return True
+
+        if isinstance(expression, AST.Identifier):
+            symbol = self.lookup_accessible_symbol(scope, expression.name, expression.line, expression.column)
+            if symbol is not None and symbol.kind == "variable":
+                return False
+            return expression.name in self.builtins.standalone_variables
+
+        if isinstance(expression, AST.MemberExpression):
+            return isinstance(expression.object, AST.Identifier) and expression.object.name == "color"
+
+        if isinstance(expression, AST.UnaryExpression):
+            return self.is_const_plot_expression(expression.argument, scope)
+
+        if isinstance(expression, AST.BinaryExpression):
+            return self.is_const_plot_expression(expression.left, scope) and self.is_const_plot_expression(expression.right, scope)
+
+        if isinstance(expression, AST.TernaryExpression):
+            return (
+                self.is_const_plot_expression(expression.condition, scope)
+                and self.is_const_plot_expression(expression.consequent, scope)
+                and self.is_const_plot_expression(expression.alternate, scope)
+            )
+
+        if isinstance(expression, AST.IfExpression):
+            return (
+                self.is_const_plot_expression(expression.condition, scope)
+                and self.is_const_plot_expression(expression.consequent, scope)
+                and self.is_const_plot_expression(expression.alternate, scope)
+            )
+
+        if isinstance(expression, AST.CallExpression):
+            function_name = self.extract_function_name(expression.callee)
+            if function_name in {"color.new", "color.rgb"}:
+                return all(self.is_const_plot_expression(argument.value, scope) for argument in expression.arguments)
+            return False
+
+        if isinstance(expression, AST.ArrayExpression):
+            return all(self.is_const_plot_expression(element, scope) for element in expression.elements)
+
+        if isinstance(expression, AST.IndexExpression):
+            return self.is_const_plot_expression(expression.object, scope) and self.is_const_plot_expression(expression.index, scope)
+
+        if isinstance(expression, AST.SwitchExpression):
+            if expression.expression is not None and not self.is_const_plot_expression(expression.expression, scope):
+                return False
+            return all(
+                (case.condition is None or self.is_const_plot_expression(case.condition, scope))
+                and self.is_const_plot_expression(case.value, scope)
+                for case in expression.cases
+            )
+
+        return False
 
     def describe_argument_type(self, expression: AST.Expression) -> tuple[str | None, str, str]:
         if isinstance(expression, AST.Literal):
