@@ -234,8 +234,15 @@ class Parser:
 
                 self.consume(TokenType.RBRACKET, 'Expected "]" in destructuring pattern')
                 if self.check(TokenType.ASSIGN):
-                    self.advance()
-                    return self.destructuring_assignment(names, variables, start)
+                    assign_token = self.advance()
+                    if assign_token.value == "=":
+                        return self.destructuring_assignment(names, variables, start)
+                    self.report_error(
+                        'Tuple destructuring uses "=" only. Reassignment with ":=" is not valid in Pine Script.',
+                        assign_token,
+                    )
+                    self.expression()
+                    return None
                 self.current = checkpoint
             except Exception:
                 self.current = checkpoint

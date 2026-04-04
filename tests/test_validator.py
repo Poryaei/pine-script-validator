@@ -153,9 +153,14 @@ p2 = plot(open)
             )
         )
 
-    def test_destructuring_reassignment_is_supported(self) -> None:
+    def test_destructuring_reassignment_is_rejected(self) -> None:
         diagnostics = self.validator.validate_text("[a, b] := foo()")
-        self.assertFalse(any("Mismatched input" in diagnostic.message for diagnostic in diagnostics))
+        self.assertTrue(
+            any(
+                'Tuple destructuring uses "=" only. Reassignment with ":=" is not valid in Pine Script.' in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
 
     def test_typed_array_declaration(self) -> None:
         diagnostics = self.validator.validate_text("var box[] mc_boxes = array.new_box()")
