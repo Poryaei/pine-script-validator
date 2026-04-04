@@ -13,10 +13,19 @@ CONSISTENCY_SENSITIVE_BUILTINS = frozenset(
         "ta.cross",
         "ta.crossover",
         "ta.crossunder",
+        "ta.ema",
         "ta.highest",
         "ta.lowest",
         "ta.highestbars",
         "ta.lowestbars",
+        "ta.sma",
+        "ta.stdev",
+        "ta.variance",
+        "ta.rma",
+        "ta.wma",
+        "ta.vwma",
+        "ta.swma",
+        "ta.linreg",
     }
 )
 

@@ -308,6 +308,19 @@ f_calc(cond, length) =>
         self.assertTrue(any('The function "ta.highest" should be called on each calculation for consistency.' in d.message for d in diagnostics))
         self.assertTrue(any('The function "ta.lowest" should be called on each calculation for consistency.' in d.message for d in diagnostics))
 
+    def test_consistency_warning_for_user_function_wrapping_ema_and_stdev(self) -> None:
+        code = """
+f_zscore(source, length) =>
+    meanValue = ta.ema(source, length)
+    deviationValue = ta.stdev(source, length)
+    deviationValue > 0 ? (source - meanValue) / deviationValue : 0.0
+
+value = cond ? f_zscore(close, 20) : na
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertTrue(any('The function "f_zscore" should be called on each calculation for consistency.' in d.message for d in diagnostics))
+        self.assertTrue(any("extract the call from the ternary operator or from the scope" in d.message for d in diagnostics))
+
     def test_consistency_warning_for_conditional_cross_functions_and_sensitive_wrapper(self) -> None:
         code = """
 f_detect_breakout_direction(level_up, level_down) =>
