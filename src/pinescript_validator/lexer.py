@@ -254,16 +254,35 @@ class Lexer:
         start = self.pos - 1
         start_line = self.line
         start_column = self.column - 1
+        terminated = False
         self._advance()
         while not self._is_at_end():
             if self._peek() == "*" and self._peek_next() == "/":
                 self._advance()
                 self._advance()
+                terminated = True
                 break
             if self._peek() == "\n":
                 self.line += 1
                 self.column = 1
             self._advance()
+        self.errors.append(
+            LexerError(
+                message="Pine Script does not support multiline comments. Use '//' comments instead.",
+                line=start_line,
+                column=start_column,
+                length=2,
+            )
+        )
+        if not terminated:
+            self.errors.append(
+                LexerError(
+                    message="Unterminated multiline comment",
+                    line=start_line,
+                    column=start_column,
+                    length=max(2, self.pos - start),
+                )
+            )
         value = self.source[start:self.pos]
         self._add_token_with_position(
             TokenType.COMMENT,

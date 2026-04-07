@@ -190,6 +190,15 @@ foo(x) =>
         diagnostics = self.validator.validate_text("x = 1 // no reclaim (close sweep)")
         self.assertFalse(any("Undefined function 'reclaim'" in diagnostic.message for diagnostic in diagnostics))
 
+    def test_multiline_comment_is_rejected(self) -> None:
+        diagnostics = self.validator.validate_text("/*\nblock\n*/\nindicator(\"x\")")
+        self.assertTrue(
+            any(
+                "Pine Script does not support multiline comments. Use '//' comments instead." in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
     def test_generic_function_call_and_dotted_array_type(self) -> None:
         code = "var chart.point[] _points = array.new<chart.point>()"
         diagnostics = self.validator.validate_text(code)
