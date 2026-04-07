@@ -198,6 +198,8 @@ class AstValidator:
                 self.validate_type_annotation(statement.type_annotation, scope, statement.line, statement.column)
             if statement.init is not None:
                 self.validate_expression(statement.init, scope, conditional_context)
+                if statement.type_annotation is None and self.is_na_literal(statement.init):
+                    self.untyped_na_declaration_error(statement.name_line, statement.name_column, statement.name)
                 if self.is_bool_type_annotation(statement.type_annotation) and self.is_na_literal(statement.init):
                     self.bool_na_error(statement.init.line, statement.init.column)
             return
@@ -1276,6 +1278,18 @@ class AstValidator:
                 column=column,
                 length=2,
                 message='Cannot assign "na" to a "bool" value in Pine Script v6',
+                severity=Severity.ERROR,
+                source="ast",
+            )
+        )
+
+    def untyped_na_declaration_error(self, line: int, column: int, name: str) -> None:
+        self.errors.append(
+            Diagnostic(
+                line=line,
+                column=column,
+                length=len(name),
+                message="Value with NA type cannot be assigned to a variable that was defined without type keyword",
                 severity=Severity.ERROR,
                 source="ast",
             )

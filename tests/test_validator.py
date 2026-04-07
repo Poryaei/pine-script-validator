@@ -50,6 +50,24 @@ class ValidatorTests(unittest.TestCase):
         diagnostics = self.validator.validate_text('indicator("Test")\nvalue = close')
         self.assertTrue(any("never used" in diagnostic.message for diagnostic in diagnostics))
 
+    def test_untyped_variable_declaration_cannot_use_na(self) -> None:
+        diagnostics = self.validator.validate_text("x = na")
+        self.assertTrue(
+            any(
+                "Value with NA type cannot be assigned to a variable that was defined without type keyword" in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
+    def test_typed_variable_declaration_can_use_na(self) -> None:
+        diagnostics = self.validator.validate_text("float x = na")
+        self.assertFalse(
+            any(
+                "Value with NA type cannot be assigned to a variable that was defined without type keyword" in diagnostic.message
+                for diagnostic in diagnostics
+            )
+        )
+
     def test_invalid_named_argument(self) -> None:
         diagnostics = self.validator.validate_text('plot(close, invalid_param=true)')
         self.assertTrue(any("Invalid parameter 'invalid_param'" in diagnostic.message for diagnostic in diagnostics))
