@@ -22,6 +22,8 @@ CONSISTENCY_SENSITIVE_BUILTINS = frozenset(
     }
 )
 
+CONSISTENCY_PROPAGATION_BUILTINS = CONSISTENCY_SENSITIVE_BUILTINS | frozenset({"ta.atr"})
+
 PLOT_COUNT_LIMIT = 64
 
 
@@ -154,6 +156,17 @@ class AstValidator:
     ) -> None:
         if name == "_":
             return
+        if kind in {"variable", "parameter", "iterator"} and name in self.builtins.standalone_variables:
+            self.errors.append(
+                Diagnostic(
+                    line=line,
+                    column=column,
+                    length=len(name),
+                    message=f'Shadowing built-in variable "{name}"',
+                    severity=Severity.WARNING,
+                    source="ast",
+                )
+            )
         existing = scope.symbols.get(name)
         if existing is None:
             scope.symbols[name] = Symbol(name=name, line=line, column=column, kind=kind, type_name=type_name)
@@ -586,9 +599,15 @@ class AstValidator:
         if isinstance(expression, AST.CallExpression):
             function_name = self.extract_function_name(expression.callee)
             resolved_function_name = self.resolve_generic_function_name(function_name) if function_name is not None else None
-            if function_name in self.consistency_sensitive_functions:
+            if function_name in self.consistency_sensitive_functions or function_name in CONSISTENCY_PROPAGATION_BUILTINS:
                 return True
-            if resolved_function_name is not None and resolved_function_name in self.consistency_sensitive_functions:
+            if (
+                resolved_function_name is not None
+                and (
+                    resolved_function_name in self.consistency_sensitive_functions
+                    or resolved_function_name in CONSISTENCY_PROPAGATION_BUILTINS
+                )
+            ):
                 return True
             if self.expression_uses_consistency_sensitive_state(expression.callee):
                 return True

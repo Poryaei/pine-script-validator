@@ -50,6 +50,10 @@ class ValidatorTests(unittest.TestCase):
         diagnostics = self.validator.validate_text('indicator("Test")\nvalue = close')
         self.assertTrue(any("never used" in diagnostic.message for diagnostic in diagnostics))
 
+    def test_shadowing_builtin_variable_is_reported(self) -> None:
+        diagnostics = self.validator.validate_text("foo(int bar_index) =>\n    bar_index")
+        self.assertTrue(any('Shadowing built-in variable "bar_index"' in diagnostic.message for diagnostic in diagnostics))
+
     def test_untyped_variable_declaration_cannot_use_na(self) -> None:
         diagnostics = self.validator.validate_text("x = na")
         self.assertTrue(
@@ -347,6 +351,20 @@ value = cond ? f_zscore(close, 20) : na
         diagnostics = self.validator.validate_text(code)
         self.assertTrue(any('The function "f_zscore" should be called on each calculation for consistency.' in d.message for d in diagnostics))
         self.assertTrue(any("extract the call from the ternary operator or from the scope" in d.message for d in diagnostics))
+
+    def test_consistency_warning_for_user_function_wrapping_atr(self) -> None:
+        code = """
+f_push_struct_label_draw(y) =>
+    atrv = ta.atr(14)
+    y + atrv
+
+if cond
+    value = f_push_struct_label_draw(close)
+"""
+        diagnostics = self.validator.validate_text(code)
+        self.assertTrue(any('The function "f_push_struct_label_draw" should be called on each calculation for consistency.' in d.message for d in diagnostics))
+        self.assertTrue(any("extract the call from this scope" in d.message for d in diagnostics))
+        self.assertFalse(any('The function "ta.atr" should be called on each calculation for consistency.' in d.message for d in diagnostics))
 
     def test_consistency_warning_for_conditional_cross_functions_and_sensitive_wrapper(self) -> None:
         code = """
